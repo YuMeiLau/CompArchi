@@ -1,3 +1,8 @@
+/*
+        Name 1: Yuwei Liu
+        UTEID 1: yl29728
+*/
+
 #include <stdio.h> /* standard input/output library */
 #include <stdlib.h> /* Standard C Library */
 #include <string.h> /* String operations library */
@@ -20,10 +25,10 @@ void secondPass(char* inputFileName, char* outputFileName);
 
 
 
-// for symbol tabel
+/* for symbol tabel */
 #define MAX_LABEL_LEN 20
 #define MAX_SYMBOLS 255
-#define MAX_INS 500 /* MAX_INS #? */
+#define MAX_INS 65536 /* MAX_INS #? */
 #define MAX_LINE_LENGTH 255
 #define INS_LEN 6 /* final format of instruction, e.g. 0xFFFF */
 #define BIN_INS_LEN 16 /* original format of instruction, e.g. 1001_1001_1001_1001 */
@@ -49,9 +54,8 @@ int main(int argc, char* argv[]) {
     oFileName = argv[2];
     firstPass(iFileName);
     secondPass(iFileName, oFileName);
-    //for(int i = 0; i < symbolTableEnding; i++)  printf("%s, 0x%04X\n", symbolTable[i].label, symbolTable[i].address);
-    //for(int j = 0; j < machineCodeEnding; j++)  printf("%s\n", machineCodeList[j]);
-}
+    exit(0);
+  }
 
 void firstPass(char* inputFileName){
   char lLine[MAX_LINE_LENGTH + 1], *lLabel, *lOpcode, *lArg1, *lArg2, *lArg3, *lArg4;
@@ -69,16 +73,18 @@ void firstPass(char* inputFileName){
           continue;
         }
 
-        else if(isValidLabel(lLabel)){
-          if(isOpcode(lOpcode) == 1 || !strcmp(lOpcode, ".fill")){
+        else if(strlen(lLabel) != 0){
+          if(isValidLabel(lLabel) && (isOpcode(lOpcode) == 1 || !strcmp(lOpcode, ".fill"))){
+            if(searchSymbolTable(lLabel) != -1) exit(4);
             insertSymbolTable(lLabel, programCounter);
-            //printf("lable:%s is inserted!\n", lLabel);
+            printf("lable:%s is inserted!\n", lLabel);
           }
         }
       /* not invalid then? exit ? */
       programCounter+=2;
     }
   }while( lRet != DONE );
+  fclose(lInfile);
 }
 
 void secondPass(char* inputFileName, char* outputFileName){
@@ -98,7 +104,7 @@ void secondPass(char* inputFileName, char* outputFileName){
         printf("%s\n", lOpcode);
         if(strcmp(lOpcode, ".orig") == 0){
           programCounter = toNum(lArg1);
-          if(programCounter % 2 == 0) fillOp(lArg1);
+          if(programCounter % 2 == 0 && programCounter > 0 && programCounter < 65535) fillOp(lArg1);
           else {printf("exit in secondPass error code 3\n");
                   exit(3);
                 }
@@ -106,15 +112,18 @@ void secondPass(char* inputFileName, char* outputFileName){
       } 
       
       else{
+        if(programCounter >= 65534){
+          printf("instrution address exceeds lc3b address space, exit at errorcode 4\n");
+          exit(4); 
+        }
         if(!strcmp(lOpcode, ".orig")) exit(4); /* multiple .orig ?? what about multiple .end*/
-        else if(isValidLabel(lLabel) && searchSymbolTable(lLabel)){ /* if label is at Arg, do it later */
+        else if(strlen(lLabel) != 0 && isValidLabel(lLabel) && searchSymbolTable(lLabel) != -1){ /* if label is at Arg, do it later */
           if(!strcmp(lOpcode, ".fill")) fillOp(lArg1);
           else if(isOpcode(lOpcode) == 1) opcodeOp(lOpcode, lArg1, lArg2, lArg3, lArg4, programCounter);
-          else exit(2);
+          else exit(2); /* no opcode following a label is illegal. */
         }
         else if(!strcmp(lOpcode, ".end")){
-          //if(count != -1) count = -2;
-          //else exit(4); /* multiple .end */
+          count = -1;
           break;
         }
         else if(!strcmp(lOpcode, ".fill")) fillOp(lArg1);
@@ -127,7 +136,9 @@ void secondPass(char* inputFileName, char* outputFileName){
      }
   }while( lRet != DONE );
 
-  for(int j = 0; j < machineCodeEnding; j++) fprintf(pOutfile, "%s\r\n", machineCodeList[j]);
+  if(count != -1) {printf("no .end specified, exit at error code 4\n"); exit(4);}
+  int j;
+  for(j = 0; j < machineCodeEnding; j++) fprintf(pOutfile, "0x%s\n", machineCodeList[j]);
 
   fclose(lInfile);
   fclose(pOutfile);
@@ -152,7 +163,7 @@ int readAndParse(FILE * pInfile, char * pLine, char ** pLabel, char ** pOpcode,
   while( *lPtr != ';' && *lPtr != '\0' && *lPtr != '\n' )
     lPtr++;
 
-  *lPtr = '\0'; //replace comment or end of line with null terminator
+  *lPtr = '\0'; /* replace comment or end of line with null terminator */
 
   if( !(lPtr = strtok( pLine, "\t\n ," ) ) )
     return( EMPTY_LINE );
@@ -185,7 +196,9 @@ int readAndParse(FILE * pInfile, char * pLine, char ** pLabel, char ** pOpcode,
 void fillOp(char* lArg1){
   char machineCode[INS_LEN + 1];
   /* constant is valid? */
-  insertMachineCode(toNum(lArg1));
+  int insValue = toNum(lArg1);
+  if(insValue < 0 || insValue > 65535) exit(3); /* .FILL constant exceeds the range (0, 0xFFFF) */
+  insertMachineCode(insValue);
 }
 
 void opcodeOp(char* lOpcode, char* lArg1, char* lArg2, char* lArg3, char* lArg4, int programCounter){
@@ -214,9 +227,9 @@ void opcodeOp(char* lOpcode, char* lArg1, char* lArg2, char* lArg3, char* lArg4,
   else if(!strcmp(lOpcode, "lea")){
     if(!checkRegFormat(lArg1)) exit(4);
     dr = lArg1[1] - '0';
-    if(!isValidLabel(lArg2)) exit(4);
- //   addrOfLabel = searchSymbolTable(lArg2);
-    if(!(addrOfLabel = searchSymbolTable(lArg2))) exit(1); /* undefined label */
+    isValidLabel(lArg2);
+ /*   addrOfLabel = searchSymbolTable(lArg2); */
+    if((addrOfLabel = searchSymbolTable(lArg2)) == -1) exit(1); /* undefined label */
     printf("this lea pc is %04X\n", programCounter);
     pcOffset9 = (addrOfLabel - (programCounter + 2)) >> 1; /* always even */
     printf("%d\n", pcOffset9);
@@ -236,6 +249,7 @@ void opcodeOp(char* lOpcode, char* lArg1, char* lArg2, char* lArg3, char* lArg4,
   }
 
  else if(!strcmp(lOpcode, "trap")){
+    if(lArg1[0] != 'x') {printf("trap vector is not a hex value, exit at error code 4\n"); exit(4);}
     trapVect8 = toNum(lArg1);
     if(trapVect8 > 255 || trapVect8 < 0) exit(3); /*invalid constants */
     insValue = (15 & 15) << 12 | (0 & 15) << 8 | trapVect8;
@@ -243,6 +257,7 @@ void opcodeOp(char* lOpcode, char* lArg1, char* lArg2, char* lArg3, char* lArg4,
   }
 
   else if(lOpcode[0] == 'b' && lOpcode[1] == 'r'){
+    isValidLabel(lArg1);
     if(!strcmp(lOpcode, "brn")) nzp = 4;
     else if(!strcmp(lOpcode, "brz")) nzp = 2;
     else if(!strcmp(lOpcode, "brp")) nzp = 1;
@@ -250,8 +265,8 @@ void opcodeOp(char* lOpcode, char* lArg1, char* lArg2, char* lArg3, char* lArg4,
     else if(!strcmp(lOpcode, "brzp")) nzp = 3;
     else if(!strcmp(lOpcode, "brnp")) nzp = 5;
     else if(!strcmp(lOpcode, "brnz")) nzp = 6;
- //   addrOfLabel = searchSymbolTable(lArg1);
-    if(!(addrOfLabel = searchSymbolTable(lArg1))) exit(1); /* undefined label */
+ /*   addrOfLabel = searchSymbolTable(lArg1); */
+    if((addrOfLabel = searchSymbolTable(lArg1)) == -1) exit(1); /* undefined label */
     pcOffset9 = (addrOfLabel - (programCounter + 2)) >> 1; /* always even */
     printf("%d\n", pcOffset9);
     if(pcOffset9 > 255 || pcOffset9 < -256) exit(4); /* too far to set offset */
@@ -298,8 +313,9 @@ void opcodeOp(char* lOpcode, char* lArg1, char* lArg2, char* lArg3, char* lArg4,
   }
 
   else if(!strcmp(lOpcode, "jsr")){
-//    addrOfLabel = searchSymbolTable(lArg1);
-    if(!(addrOfLabel = searchSymbolTable(lArg1))) exit(1); /* undefined label */
+/*    addrOfLabel = searchSymbolTable(lArg1); */
+    isValidLabel(lArg1);
+    if((addrOfLabel = searchSymbolTable(lArg1)) == -1) exit(1); /* undefined label */
     pcOffset11 = (addrOfLabel - (programCounter + 2)) >> 1; /* always even */
     printf("%d\n", pcOffset11);
     if(pcOffset11 > 1023 || pcOffset11 < -1024) exit(4); /* too far to set offset */
@@ -415,22 +431,26 @@ int isOpcode(char* op){
 int isValidLabel(char* label) {
   /*may need double check the error code might contain? */
   int i = 0; 
-  if(!strcmp(label, "")){
-    return 0;
+
+  if (!isalpha(label[0]) || label[0] == 'x') {
+    printf("label doesn't start with letter other than x, exit at error code 4\n");
+    exit(4);
   }
-  else if (!label[0] || !isalpha(label[0]) || label[0] == 'x') {
-    return 0;
-  }
+
   else if (!strcmp(label, "in") || !strcmp(label, "out") ||
       !strcmp(label, "getc") || !strcmp(label, "puts")) {
-      return 0;
+    printf("label is IN/OUT/GETC/PUTS, exit at error code 4\n");
+    exit(4);
   }
-  else if(isOpcode(label) == 1 || !strcmp(label, ".orig") || !strcmp(label, ".end") || !strcmp(label, ".fill"))
-    return 0;
+  else if(isOpcode(label) == 1 || !strcmp(label, ".orig") || !strcmp(label, ".end") || !strcmp(label, ".fill") || checkRegFormat(label) == 1){
+    printf("label is opcode/pseudo code/register, exit at error code 4\n");
+    exit(4);
+  }
 
   while (label[i]) {
     if (!isalnum(label[i]) || i > 20) {
-      return 0;
+      printf("label isn't alphanumeric/exceeds 20 characters, exit at error code 4\n");
+      exit(4);
     }
     i++;
   }
@@ -453,20 +473,18 @@ void insertSymbolTable(char* lLabel, int programCounter){
 
 
 int searchSymbolTable(char* lLabel){
-  for(int i = 0; i < symbolTableEnding; i++){
+  int i;
+  for(i = 0; i < symbolTableEnding; i++){
    if(strcmp(lLabel, symbolTable[i].label) == 0)
      return symbolTable[i].address;     
   }
-  return 0;
+  return -1;
 }
 
 void insertMachineCode(int insValue){
   char ins[BIN_INS_LEN + 1];
-  //printf("%d\n", insValue); 
   sprintf(ins, "%04X", insValue);
   strcpy(machineCodeList[machineCodeEnding], ins);
-   
-  //printf("%s\n", ins);
   machineCodeEnding++;
 }
 

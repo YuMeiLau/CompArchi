@@ -583,8 +583,6 @@ int main(int argc, char *argv[]) {
 #define mask09 0x01FF
 #define mask11 0x7FF
 
-enum COND {Unconditional, Memory_Ready, Branch, Addressing_Mode} COND;
-
 /*Get bit N's value of ir */
 int getBit(int n,int ir) {
   int bitN;
@@ -636,6 +634,8 @@ void setCC(int dr) {
 * micro sequencer logic. Latch the next microinstruction.
 */
 
+enum COND {Unconditional, Memory_Ready, Branch, Addressing_Mode} COND;
+
 void eval_micro_sequencer() {
     int cond, j;
     if(GetIRD(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
@@ -654,7 +654,7 @@ void eval_micro_sequencer() {
                 NEXT_LATCHES.STATE_NUMBER = (getBitRange(2, 5, j) << 2) + (CURRENT_LATCHES.READY << 1) + getBit(0, j);
                 break;
             case Branch:
-                NEXT_LATCHES.STATE_NUMBER = (getBitRange(3, 5, j) << 3) + (CURRENT_LATCHES.BEN << 2 ) + getBitRange(0, 1, j);
+                NEXT_LATCHES.STATE_NUMBER = (getBitRange(3, 5, j) << 3) + (CURRENT_LATCHES.BEN << 2) + getBitRange(0, 1, j);
                 break;
             case Addressing_Mode:
                 NEXT_LATCHES.STATE_NUMBER = (getBitRange(1, 5, j) << 1) + getBit(11, CURRENT_LATCHES.IR);
@@ -803,36 +803,36 @@ void eval_bus_drivers() {
     sext0to10 = sext(11, getBitRange(0, 10, CURRENT_LATCHES.IR));
     zextlshf1 = getBitRange(0, 7, CURRENT_LATCHES.IR) << 1;
 
+    /* Attention: adderVal is shared between MARMUX and PCMUX! */
+    if(GetADDR1MUX(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
+        addOp1 = CURRENT_LATCHES.PC;
+    else addOp1 = sr1; /* BaseR */
+
+    switch(GetADDR2MUX(CURRENT_LATCHES.MICROINSTRUCTION)) {
+        case ZERO:
+            addOp2 = 0;
+            break;
+        case offset6:
+            addOp2 = sext0to5;
+            break;
+        case PCoffset9:
+            addOp2 = sext0to8;
+            break;
+        case PCoffset11:
+            addOp2 = sext0to10;
+            break;
+    }
+
+    if(GetLSHF1(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
+        addOp2 = addOp2 << 1;
+
+    adderVal = addOp1 + addOp2;
+
     if(GetMARMUX(CURRENT_LATCHES.MICROINSTRUCTION) == 0) 
         Gate_MARMUX_val = Low16bits(zextlshf1);
 
-    else {
-        if(GetADDR1MUX(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
-            addOp1 = CURRENT_LATCHES.PC;
-        else addOp1 = sr1; /* BaseR */
+    else Gate_MARMUX_val = Low16bits(adderVal);
 
-        switch(GetADDR2MUX(CURRENT_LATCHES.MICROINSTRUCTION)) {
-            case ZERO:
-                addOp2 = 0;
-                break;
-            case offset6:
-                addOp2 = sext0to5;
-                break;
-            case PCoffset9:
-                addOp2 = sext0to8;
-                break;
-            case PCoffset11:
-                addOp2 = sext0to10;
-                break;
-        }
-
-        if(GetLSHF1(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
-            addOp2 = addOp2 << 1;
-
-        adderVal = addOp1 + addOp2;
-        Gate_MARMUX_val = Low16bits(adderVal);
-
-    }
 
     /* GatePC */
     Gate_PC_val = Low16bits(CURRENT_LATCHES.PC);
@@ -896,6 +896,10 @@ void latch_datapath_values() {
                 else /* STW */
                     NEXT_LATCHES.MDR = Low16bits(BUS);
             }
+
+            else { /* STB of the higher byte */
+            	NEXT_LATCHES.MDR = getBitRange(0, 7, BUS); /* The same as MAR[0] == 0, different operations will be applied in cycle_memory. */
+            }
         }
     }
 
@@ -906,9 +910,9 @@ void latch_datapath_values() {
 
     /* LD.BEN */
     if(GetLD_BEN(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
-        NEXT_LATCHES.BEN = CURRENT_LATCHES.N & getBit(11, CURRENT_LATCHES.IR) 
-            + CURRENT_LATCHES.Z & getBit(10, CURRENT_LATCHES.IR) 
-                + CURRENT_LATCHES.P & getBit(9, CURRENT_LATCHES.IR);
+        NEXT_LATCHES.BEN = (CURRENT_LATCHES.N & getBit(11, CURRENT_LATCHES.IR)) 
+            + (CURRENT_LATCHES.Z & getBit(10, CURRENT_LATCHES.IR)) 
+                + (CURRENT_LATCHES.P & getBit(9, CURRENT_LATCHES.IR));
     }
 
     /* LD.REG */
@@ -922,9 +926,23 @@ void latch_datapath_values() {
 
     /* LD.CC */
     if(GetLD_CC(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
-        if(BUS == 0) NEXT_LATCHES.Z = 1;
-        else if(getBit(15, BUS) == 0) NEXT_LATCHES.P = 1;
-        else if(getBit(15, BUS) == 0) NEXT_LATCHES.N = 1;
+        if(BUS == 0) {
+        	NEXT_LATCHES.N = 0;
+        	NEXT_LATCHES.Z = 1;
+        	NEXT_LATCHES.P = 0;
+        }
+
+        else if(getBit(15, BUS) == 0) {
+        	NEXT_LATCHES.N = 0;
+        	NEXT_LATCHES.Z = 0;
+        	NEXT_LATCHES.P = 1;
+        }
+
+        else if(getBit(15, BUS) == 1) {
+        	NEXT_LATCHES.N = 1;
+        	NEXT_LATCHES.Z = 0;
+        	NEXT_LATCHES.P = 0;
+        }
     }
 
     /* LD.PC */

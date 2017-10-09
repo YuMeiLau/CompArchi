@@ -699,13 +699,13 @@ void cycle_memory() {
                 /* STB odd addr*/
 
                 if(getBit(0, CURRENT_LATCHES.MAR) == 1) {
-                    MEMORY[memIndex][1] = CURRENT_LATCHES.MDR & mask08;
+                    MEMORY[memIndex][1] = getBitRange(8, 15, CURRENT_LATCHES.MDR);
                 }
 
                 else {
                     /* STB even addr*/
                     if(GetDATA_SIZE(CURRENT_LATCHES.MICROINSTRUCTION) == 0) {
-                        MEMORY[memIndex][0] = CURRENT_LATCHES.MDR & mask08;
+                        MEMORY[memIndex][0] = getBitRange(0, 7, CURRENT_LATCHES.MDR);
                     }
 
                     /* STW */
@@ -892,13 +892,13 @@ void latch_datapath_values() {
         if(GetMIO_EN(CURRENT_LATCHES.MICROINSTRUCTION) == 0) {
             if(getBit(0, CURRENT_LATCHES.MAR) == 0) {
                 if(GetDATA_SIZE(CURRENT_LATCHES.MICROINSTRUCTION) == 0) /* STB of the lower byte */
-                    NEXT_LATCHES.MDR = getBitRange(0, 7, BUS);
+                    NEXT_LATCHES.MDR = Low16bits((getBitRange(0, 7, BUS) << 8) + getBitRange(0, 7, BUS));
                 else /* STW */
                     NEXT_LATCHES.MDR = Low16bits(BUS);
             }
 
             else { /* STB of the higher byte */
-            	NEXT_LATCHES.MDR = getBitRange(0, 7, BUS); /* The same as MAR[0] == 0, different operations will be applied in cycle_memory. */
+            	NEXT_LATCHES.MDR = Low16bits((getBitRange(0, 7, BUS) << 8) + getBitRange(0, 7, BUS)); /* The same as MAR[0] == 0, different operations will be applied in cycle_memory. */
             }
         }
     }

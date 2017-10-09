@@ -5,7 +5,7 @@
         Name 1: Hongchang Liang
         Name 2: Yuwei Liu
         UTEID 1: hl23673
-        UTEID 2: UT EID of the second partner
+        UTEID 2: yl29728
  */
 
 /***************************************************************/
@@ -552,9 +552,9 @@ void ldb(int ir) {
     memIndex = (addr >> 1);
 
     if(addr%2==0) {
-    	NEXT_LATCHES.REGS[dr] = MEMORY[memIndex][0];
+    	NEXT_LATCHES.REGS[dr] = Low16bits(sext(8,getBitRange(0,7,MEMORY[memIndex][0])));
     } else {
-    	NEXT_LATCHES.REGS[dr] = MEMORY[memIndex][1];
+    	NEXT_LATCHES.REGS[dr] = Low16bits(sext(8,getBitRange(0,7,MEMORY[memIndex][1])));
     }
     printf("Info： In func： ldb : addr: 0x%x, offset:  0x%x ,baseR:0x%x\n",addr,sext(6,bOffset6),CURRENT_LATCHES.REGS[baseR]);
     printf("Info： In func： ldb : memIndex: 0x%x,mem0:0x%x,mem1 0x%x\n",memIndex,MEMORY[memIndex][0],MEMORY[memIndex][1]);
@@ -579,7 +579,7 @@ void stb(int ir){
 
 	    regVal   = getBitRange(0,7,CURRENT_LATCHES.REGS[sr]);
 	    if(addr%2==0) {
-	    	MEMORY[memIndex][0] = regVal ;
+	    	MEMORY[memIndex][0] = regVal ; /* don't need low16bits because only 8 bits?*/
 	    } else {
 	    	MEMORY[memIndex][1] = regVal ;
 	    }
@@ -598,11 +598,13 @@ void 	jsr(int ir){
 	pcOffset11 = getBitRange(0,10,ir);
 	baseR      = getBitRange(6,8,ir);
 
-	NEXT_LATCHES.REGS[7]=NEXT_LATCHES.PC;
+	pcOffset11 = sext(11,pcOffset11)<<1;
+
+	NEXT_LATCHES.REGS[7] = Low16bits(NEXT_LATCHES.PC);
 
 	if(getBit(11,ir)) {
 		/*JSR*/
-		NEXT_LATCHES.PC = Low16bits(NEXT_LATCHES.PC + (sext(11,pcOffset11)<<1));
+		NEXT_LATCHES.PC = Low16bits(NEXT_LATCHES.PC + pcOffset11);
 	} else {
 		/*JSRR*/
 		NEXT_LATCHES.PC = Low16bits(CURRENT_LATCHES.REGS[baseR]) ;
@@ -650,7 +652,7 @@ void ldw(int ir){
     memIndex = addr >> 1;
 
     if(addr%2==0) {
-    	NEXT_LATCHES.REGS[dr] = MEMORY[memIndex][1];
+    	NEXT_LATCHES.REGS[dr] = getBitRange(0,7,MEMORY[memIndex][1]);
     	NEXT_LATCHES.REGS[dr] = Low16bits((NEXT_LATCHES.REGS[dr]<<8) | getBitRange(0,7,MEMORY[memIndex][0]));
     } else {
     	printf("Error： In func： ldw : address 0x%x is odd for a word align memory!\n",addr);
@@ -676,7 +678,7 @@ void stw(int ir){
             addr     = Low16bits(CURRENT_LATCHES.REGS[baseR] + bOffset6);
 	    memIndex = (addr >> 1);
 
-	    regVal   = CURRENT_LATCHES.REGS[sr];
+	    regVal   = Low16bits(CURRENT_LATCHES.REGS[sr]);
 	    if(addr%2==0) {
 	    	MEMORY[memIndex][0] = getBitRange(0,7,regVal) ;
 	    	MEMORY[memIndex][1] = getBitRange(8,15,regVal);
@@ -717,13 +719,12 @@ void	xor(int ir){
 /* opcode = 12 */
 void jmp(int ir){
 
-	int baseR, bOffset6 ;
+	int baseR;
 	printf("Info： In func： jmp : ir==%x\n",ir);
     /*check opcode*/
 	checkOpcode(ir,JMP);
 
     baseR    = getBitRange(6,8,ir);
-    bOffset6 = getBitRange(0,5,ir);
 
     NEXT_LATCHES.PC=Low16bits(CURRENT_LATCHES.REGS[baseR]);
 }
@@ -762,7 +763,8 @@ void 	lea(int ir){
 
     dr        = getBitRange(9,11,ir);
     pcOffset9 = getBitRange(0,8,ir);
-    NEXT_LATCHES.REGS[dr] = Low16bits(NEXT_LATCHES.PC + (pcOffset9<<1));
+    pcOffset9 = sext(9,pcOffset9)<<1;
+    NEXT_LATCHES.REGS[dr] = Low16bits(NEXT_LATCHES.PC + pcOffset9);
 
 }
 
@@ -775,11 +777,11 @@ void trap(int ir){
     printf("Info： In func： trap : ir==%x\n",ir);
     /*check opcode*/
     checkOpcode(ir,TRAP);
-    trapvect8 = getBitRange(0,7,ir);
-    memIndex  = trapvect8 << 1 ;
+    trapvect8 = getBitRange(0,7,ir) << 1; /* Yuwei */
+    memIndex  = trapvect8 >> 1 ; /* Yuwei */
 
     NEXT_LATCHES.REGS[7]=Low16bits(NEXT_LATCHES.PC);
-    NEXT_LATCHES.PC = MEMORY[memIndex][1];
+    NEXT_LATCHES.PC = getBitRange(0,7,MEMORY[memIndex][1]);
     NEXT_LATCHES.PC = Low16bits((NEXT_LATCHES.PC <<8) | getBitRange(0,7,MEMORY[memIndex][0]));
 }
 

@@ -65,17 +65,29 @@ enum CS_BITS {
     GATE_MARMUX,
     GATE_SHF,
     PCMUX1, PCMUX0,
-    DRMUX,
-    SR1MUX,
+    DRMUX1, DRMUX0, /* M */
+    SR1MUX1, SR1MUX0, /* M */
     ADDR1MUX,
     ADDR2MUX1, ADDR2MUX0,
-    MARMUX,
+    MARMUX1, MARMUX0, /* M */
     ALUK1, ALUK0,
     MIO_EN,
     R_W,
     DATA_SIZE,
     LSHF1,
 /* MODIFY: you have to add all your new control signals */
+    INTREN,
+    EXCEN,
+    CLRINTREXC,
+    PCRT,
+    R6SRC1, R6SRC0,
+    R6OP1, R6OP0,
+    LD_USP,
+    LD_SSP,
+    GATE_PSR,
+    LD_PSR,
+    PSRMUX,
+    CCRT,
     CONTROL_STORE_BITS
 } CS_BITS;
 
@@ -83,7 +95,7 @@ enum CS_BITS {
 /* Functions to get at the control bits.                       */
 /***************************************************************/
 int GetIRD(int *x)           { return(x[IRD]); }
-int GetCOND(int *x)          { return((x[COND1] << 1) + x[COND0]); }
+int GetCOND(int *x)          { return((x[COND1] << 1) + x[COND0]); } 
 int GetJ(int *x)             { return((x[J5] << 5) + (x[J4] << 4) +
 				      (x[J3] << 3) + (x[J2] << 2) +
 				      (x[J1] << 1) + x[J0]); }
@@ -100,16 +112,29 @@ int GetGATE_ALU(int *x)      { return(x[GATE_ALU]); }
 int GetGATE_MARMUX(int *x)   { return(x[GATE_MARMUX]); }
 int GetGATE_SHF(int *x)      { return(x[GATE_SHF]); }
 int GetPCMUX(int *x)         { return((x[PCMUX1] << 1) + x[PCMUX0]); }
-int GetDRMUX(int *x)         { return(x[DRMUX]); }
-int GetSR1MUX(int *x)        { return(x[SR1MUX]); }
+int GetDRMUX(int *x)         { return((x[DRMUX1] << 1) + x[DRMUX0]); }
+int GetSR1MUX(int *x)        { return((x[SR1MUX1] << 1) + x[SR1MUX0]); }
 int GetADDR1MUX(int *x)      { return(x[ADDR1MUX]); }
 int GetADDR2MUX(int *x)      { return((x[ADDR2MUX1] << 1) + x[ADDR2MUX0]); }
-int GetMARMUX(int *x)        { return(x[MARMUX]); }
+int GetMARMUX(int *x)        { return((x[MARMUX1] << 1) + x[MARMUX0]); } /* Modify */
 int GetALUK(int *x)          { return((x[ALUK1] << 1) + x[ALUK0]); }
 int GetMIO_EN(int *x)        { return(x[MIO_EN]); }
 int GetR_W(int *x)           { return(x[R_W]); }
 int GetDATA_SIZE(int *x)     { return(x[DATA_SIZE]); } 
 int GetLSHF1(int *x)         { return(x[LSHF1]); }
+
+int GetINTREN(int *x)        { return (x[INTREN]); }
+int GetEXCEN(int *x)         { return (x[EXCEN]); }
+int GetCLRINTREXC(int *x)    { return (x[CLRINTREXC]); }
+int GetPCRT(int *x)          { return (x[PCRT]); }
+int GetR6SRC(int *x)         { return ((x[R6SRC1] << 1) + x[R6SRC0]); }
+int GetR6OP(int *x)          { return ((x[R6OP1] << 1) + x[R6OP0]); }
+int GetLD_USP(int *x)        { return (x[LD_USP]); }
+int GetLD_SSP(int *x)        { return (x[LD_SSP]); }
+int GetGATE_PSR(int *x)      { return (x[GATE_PSR]); }
+int GetLD_PSR(int *x)        { return (x[LD_PSR]); }
+int GetPSRMUX(int *x)        { return (x[PSRMUX]); }
+int GetCCRT(int *x)          { return (x[CCRT]); }
 /* MODIFY: you can add more Get functions for your new control signals */
 
 /***************************************************************/
@@ -168,6 +193,12 @@ int INTV; /* Interrupt vector register */
 int EXCV; /* Exception vector register */
 int SSP; /* Initial value of system stack pointer */
 /* MODIFY: You may add system latches that are required by your implementation */
+
+int EXC;
+int INTR;
+int ROUTINEADDR;
+int USP;
+int PSR;
 
 } System_Latches;
 
@@ -521,10 +552,19 @@ void initialize(char *ucode_filename, char *program_filename, int num_prog_files
 	load_program(program_filename);
 	while(*program_filename++ != '\0');
     }
+    CURRENT_LATCHES.N = 0;
     CURRENT_LATCHES.Z = 1;
+    CURRENT_LATCHES.P = 0;
+    CURRENT_LATCHES.EXC = 0;
+    CURRENT_LATCHES.INTR = 0;
     CURRENT_LATCHES.STATE_NUMBER = INITIAL_STATE_NUMBER;
     memcpy(CURRENT_LATCHES.MICROINSTRUCTION, CONTROL_STORE[INITIAL_STATE_NUMBER], sizeof(int)*CONTROL_STORE_BITS);
     CURRENT_LATCHES.SSP = 0x3000; /* Initial value of system stack pointer */
+
+    /* Modify */
+    CURRENT_LATCHES.PSR = Low16bits((1 << 15) + (CURRENT_LATCHES.N << 2) + (CURRENT_LATCHES.Z << 1) + CURRENT_LATCHES.P);
+
+    /* Modify */
 
     NEXT_LATCHES = CURRENT_LATCHES;
 
@@ -594,6 +634,8 @@ int main(int argc, char *argv[]) {
 #define mask09 0x01FF
 #define mask11 0x7FF
 
+#define BASEV 0x0200 /* Interrupt/Exception Table */
+
 /*Get bit N's value of ir */
 int getBit(int n,int ir) {
   int bitN;
@@ -645,31 +687,92 @@ void setCC(int dr) {
 * micro sequencer logic. Latch the next microinstruction.
 */
 
+enum INT_EXC_TYPE {NONE, TIMER_INTERRUPT, PROTECTION_EXCEPTION, UNALIGNED_ACCESS_EXCEPTION, UNKNOWN_OPCODE_EXCEPTION} INT_EXC_TYPE;
+
+void exception_handler() {
+    if(GetCLRINTREXC(CURRENT_LATCHES.MICROINSTRUCTION) != 1) {
+        if((GetMIO_EN(CURRENT_LATCHES.MICROINSTRUCTION) == 1) && (getBit(15, CURRENT_LATCHES.PSR) == 1) && (CURRENT_LATCHES.MAR >= 0x0000 && CURRENT_LATCHES.MAR <= 0x2FFF)) {
+            CURRENT_LATCHES.EXC = 1;
+            NEXT_LATCHES.EXC = 1;
+            NEXT_LATCHES.EXCV = PROTECTION_EXCEPTION;
+        }
+
+        else if((GetMIO_EN(CURRENT_LATCHES.MICROINSTRUCTION) == 1) && (getBit(0, CURRENT_LATCHES.MAR) == 1) && (GetDATA_SIZE(CURRENT_LATCHES.MICROINSTRUCTION) == 1)) {
+            CURRENT_LATCHES.EXC = 1;
+            NEXT_LATCHES.EXC = 1;
+            NEXT_LATCHES.EXCV = UNALIGNED_ACCESS_EXCEPTION;
+        }
+
+        else if((GetLD_BEN(CURRENT_LATCHES.MICROINSTRUCTION) == 1) && ((getBitRange(12, 15, CURRENT_LATCHES.IR) == 10) || (getBitRange(12, 15, CURRENT_LATCHES.IR) == 11))) {
+            CURRENT_LATCHES.EXC = 1;
+            NEXT_LATCHES.EXC = 1;
+            NEXT_LATCHES.EXCV = UNKNOWN_OPCODE_EXCEPTION;
+        }
+    }
+}
+
+void interrupt_handler() {
+    if(GetCLRINTREXC(CURRENT_LATCHES.MICROINSTRUCTION) != 1) {
+        if(CYCLE_COUNT == 300) {
+            CURRENT_LATCHES.INTR = 1;
+            NEXT_LATCHES.INTR = 1;
+            NEXT_LATCHES.INTV = TIMER_INTERRUPT;
+        }
+    }
+}
+
+void clear_intr_exc() {
+    if(GetCLRINTREXC(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
+        if(CURRENT_LATCHES.EXC == 1) NEXT_LATCHES.EXC = 0;
+        else NEXT_LATCHES.INTR = 0;
+    }
+}
+
 enum COND {Unconditional, Memory_Ready, Branch, Addressing_Mode} COND;
 
 void eval_micro_sequencer() {
-    int cond, j;
-    if(GetIRD(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
-        NEXT_LATCHES.STATE_NUMBER = getBitRange(12, 15, CURRENT_LATCHES.IR) & mask04;
+    int cond, j, intr_exc_control;
+
+    interrupt_handler();
+    exception_handler();
+
+    intr_exc_control = (CURRENT_LATCHES.INTR && GetINTREN(CURRENT_LATCHES.MICROINSTRUCTION)) 
+                            + (CURRENT_LATCHES.EXC && GetEXCEN(CURRENT_LATCHES.MICROINSTRUCTION));
+    printf("CYCLE_COUNT now is %d, intr is %d, exc is %d\n", CYCLE_COUNT, CURRENT_LATCHES.INTR, CURRENT_LATCHES.EXC);
+    printf("intr_exc_control now is %d\n", intr_exc_control);
+
+    if(intr_exc_control == 1) {
+        NEXT_LATCHES.STATE_NUMBER = 26;
+
+        if(CURRENT_LATCHES.EXC == 1) NEXT_LATCHES.ROUTINEADDR = Low16bits(BASEV + (NEXT_LATCHES.EXCV << 1));
+        else NEXT_LATCHES.ROUTINEADDR = Low16bits(BASEV + (NEXT_LATCHES.INTV << 1));
+        printf("The addr containing starting addr of intr/exc is %d\n", NEXT_LATCHES.ROUTINEADDR);
     }
 
     else {
-        cond = GetCOND(CURRENT_LATCHES.MICROINSTRUCTION);
-        j = GetJ(CURRENT_LATCHES.MICROINSTRUCTION);
+        if(GetIRD(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
+            NEXT_LATCHES.STATE_NUMBER = getBitRange(12, 15, CURRENT_LATCHES.IR) & mask04;
+        }
 
-        switch (cond) {
-            case Unconditional:
-                NEXT_LATCHES.STATE_NUMBER = j;
-                break;
-            case Memory_Ready:
-                NEXT_LATCHES.STATE_NUMBER = (getBitRange(2, 5, j) << 2) + (CURRENT_LATCHES.READY << 1) + getBit(0, j);
-                break;
-            case Branch:
-                NEXT_LATCHES.STATE_NUMBER = (getBitRange(3, 5, j) << 3) + (CURRENT_LATCHES.BEN << 2) + getBitRange(0, 1, j);
-                break;
-            case Addressing_Mode:
-                NEXT_LATCHES.STATE_NUMBER = (getBitRange(1, 5, j) << 1) + getBit(11, CURRENT_LATCHES.IR);
-                break;
+        else {
+            cond = GetCOND(CURRENT_LATCHES.MICROINSTRUCTION);
+            j = GetJ(CURRENT_LATCHES.MICROINSTRUCTION);
+
+            switch (cond) {
+                case Unconditional:
+                    NEXT_LATCHES.STATE_NUMBER = j;
+                    break;
+                case Memory_Ready:
+                    NEXT_LATCHES.STATE_NUMBER = (getBitRange(2, 5, j) << 2) + (CURRENT_LATCHES.READY << 1) + getBit(0, j);
+                    break;
+                case Branch:
+                    NEXT_LATCHES.STATE_NUMBER = (getBitRange(3, 5, j) << 3) + (CURRENT_LATCHES.BEN << 2) + getBitRange(0, 1, j);
+                    break;
+                case Addressing_Mode:
+                    NEXT_LATCHES.STATE_NUMBER = (getBitRange(1, 5, j) << 1) + getBit(11, CURRENT_LATCHES.IR);
+                    break;
+            }
+
         }
 
     }
@@ -746,6 +849,7 @@ enum ADDR2MUX {ZERO, offset6, PCoffset9, PCoffset11} ADDR2MUX;
 enum SHF {LSHF, RSHFL, RESERVE, RSHFA} SHF;
 enum ALUK {ADD, AND, XOR, PASSA} ALUK;
 
+int Gate_PSR_val;
 /* 
 * Datapath routine emulating operations before driving the bus.
 * Evaluate the input of tristate drivers 
@@ -764,7 +868,9 @@ void eval_bus_drivers() {
 
     if(GetSR1MUX(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
         sr1 = CURRENT_LATCHES.REGS[getBitRange(9, 11, CURRENT_LATCHES.IR)];
-    else sr1 = CURRENT_LATCHES.REGS[getBitRange(6, 8, CURRENT_LATCHES.IR)];
+    else if(GetSR1MUX(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
+        sr1 = CURRENT_LATCHES.REGS[getBitRange(6, 8, CURRENT_LATCHES.IR)];
+    else sr1 = CURRENT_LATCHES.REGS[6];
 
     sr2 = CURRENT_LATCHES.REGS[getBitRange(0, 2, CURRENT_LATCHES.IR)];
 
@@ -841,9 +947,10 @@ void eval_bus_drivers() {
 
     if(GetMARMUX(CURRENT_LATCHES.MICROINSTRUCTION) == 0) 
         Gate_MARMUX_val = Low16bits(zextlshf1);
-
-    else Gate_MARMUX_val = Low16bits(adderVal);
-
+    else if(GetMARMUX(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
+        Gate_MARMUX_val = Low16bits(adderVal);
+    else
+        Gate_MARMUX_val = CURRENT_LATCHES.ROUTINEADDR; 
 
     /* GatePC */
     Gate_PC_val = Low16bits(CURRENT_LATCHES.PC);
@@ -859,6 +966,9 @@ void eval_bus_drivers() {
 
     else /* Odd addr, aka LDB of higher byte */
         Gate_MDR_val = Low16bits(sext(8, getBitRange(8, 15, CURRENT_LATCHES.MDR)));
+
+    /* GatePSR */
+    Gate_PSR_val = Low16bits(CURRENT_LATCHES.PSR);
 
 }
 
@@ -878,6 +988,8 @@ void drive_bus() {
         BUS = Gate_SHF_val;
     else if(GetGATE_MDR(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
         BUS = Gate_MDR_val;
+    else if(GetGATE_PSR(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
+        BUS = Gate_PSR_val;
     else
         BUS = 0;
 
@@ -889,7 +1001,7 @@ void drive_bus() {
 * require sourcing the bus; therefore, this routine has to come 
 * after drive_bus.
 */       
-int dr;
+int dr, tmpR6;
 enum PCMUX {PCplus2, Bus, Adder} PCMUX;
 
 void latch_datapath_values() {
@@ -930,30 +1042,61 @@ void latch_datapath_values() {
     if(GetLD_REG(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
         if(GetDRMUX(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
             dr = getBitRange(9, 11, CURRENT_LATCHES.IR);
-        else dr = 7;
+        else if(GetDRMUX(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
+            dr = 7;
+        else dr = 6;
 
-        NEXT_LATCHES.REGS[dr] = Low16bits(BUS);
+        if(dr == 6) {
+            if(GetR6SRC(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
+                tmpR6 = Low16bits(BUS);
+            else if(GetR6SRC(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
+                tmpR6 = CURRENT_LATCHES.SSP;
+            else {
+                if(getBit(15, CURRENT_LATCHES.PSR) == 1) /* User Mode */
+                    tmpR6 = CURRENT_LATCHES.USP;
+                else tmpR6 = CURRENT_LATCHES.REGS[6];
+            }
+
+            if(GetR6OP(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
+                NEXT_LATCHES.REGS[6] = Low16bits(tmpR6);
+            else if(GetR6OP(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
+                NEXT_LATCHES.REGS[6] = Low16bits(tmpR6 + 2);
+            else NEXT_LATCHES.REGS[6] = Low16bits(tmpR6 - 2);
+        }
+
+        else NEXT_LATCHES.REGS[dr] = Low16bits(BUS);
     }
 
     /* LD.CC */
     if(GetLD_CC(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
-        if(BUS == 0) {
-            NEXT_LATCHES.N = 0;
-            NEXT_LATCHES.Z = 1;
-            NEXT_LATCHES.P = 0;
+        if(GetCCRT(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
+            NEXT_LATCHES.N = getBit(2, BUS);
+            NEXT_LATCHES.Z = getBit(1, BUS);
+            NEXT_LATCHES.P = getBit(0, BUS);
         }
 
-        else if(getBit(15, BUS) == 0) {
-            NEXT_LATCHES.N = 0;
-            NEXT_LATCHES.Z = 0;
-            NEXT_LATCHES.P = 1;
-        }
+        else {
+            if(BUS == 0) {
+                NEXT_LATCHES.N = 0;
+                NEXT_LATCHES.Z = 1;
+                NEXT_LATCHES.P = 0;
+            }
 
-        else if(getBit(15, BUS) == 1) {
-            NEXT_LATCHES.N = 1;
-            NEXT_LATCHES.Z = 0;
-            NEXT_LATCHES.P = 0;
+            else if(getBit(15, BUS) == 0) {
+                NEXT_LATCHES.N = 0;
+                NEXT_LATCHES.Z = 0;
+                NEXT_LATCHES.P = 1;
+            }
+
+            else if(getBit(15, BUS) == 1) {
+                NEXT_LATCHES.N = 1;
+                NEXT_LATCHES.Z = 0;
+                NEXT_LATCHES.P = 0;
+            }
+
+            NEXT_LATCHES.PSR = Low16bits((getBit(15, CURRENT_LATCHES.PSR) << 15) + (NEXT_LATCHES.N << 2) + (NEXT_LATCHES.Z << 1) + NEXT_LATCHES.P);
         }
+        printf("PSR is now %x\n", NEXT_LATCHES.PSR);
     }
 
     /* LD.PC */
@@ -963,11 +1106,37 @@ void latch_datapath_values() {
                 NEXT_LATCHES.PC = Low16bits(CURRENT_LATCHES.PC + 2);
                 break;
             case Bus:
-                NEXT_LATCHES.PC = Low16bits(BUS);
+                if(GetPCRT(CURRENT_LATCHES.MICROINSTRUCTION) == 1)
+                    NEXT_LATCHES.PC = Low16bits(BUS - 2); 
+                else NEXT_LATCHES.PC = Low16bits(BUS);
                 break;
             case Adder:
                 NEXT_LATCHES.PC = Low16bits(adderVal);
                 break;
         }
     }
+
+    /* LD.USP */
+    if(GetLD_USP(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
+        if(getBit(15, CURRENT_LATCHES.PSR) == 1) { /* Indicate User Mode */
+            NEXT_LATCHES.USP = Low16bits(BUS);
+            printf("USP is now %x\n", BUS);
+        }
+    }
+
+    /* LD.SSP */
+    if(GetLD_SSP(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
+        NEXT_LATCHES.SSP = Low16bits(BUS);
+        printf("SSPis now %x\n", NEXT_LATCHES.SSP);
+    }
+
+    /* LD.PSR */
+    if(GetLD_PSR(CURRENT_LATCHES.MICROINSTRUCTION) == 1) {
+        if(GetPSRMUX(CURRENT_LATCHES.MICROINSTRUCTION) == 0)
+            NEXT_LATCHES.PSR = Low16bits(BUS);
+        else NEXT_LATCHES.PSR = Low16bits((0 << 15) + getBitRange(0, 14, CURRENT_LATCHES.PSR));
+        printf("PSR is now %x\n", NEXT_LATCHES.PSR);
+    }
+
+    clear_intr_exc();
 }

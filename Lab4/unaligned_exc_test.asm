@@ -1,0 +1,9 @@
+.ORIG X1A00
+
+LEA R3, A
+LDW R3, R3, #0
+
+RTI
+
+A .FILL X7002
+.END

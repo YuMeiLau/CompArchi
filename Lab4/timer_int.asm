@@ -1,0 +1,18 @@
+.ORIG X1200
+STW R1, R6, #-1
+STW R0, R6, #-2
+ADD R6, R6, #-4
+LEA R0, A
+LDW R0, R0, #0
+LDW R1, R0, #0
+ADD R1, R1, #1
+STW R1, R0, #0
+
+LDW R0, R6, #0
+LDW R1, R6, #1
+ADD R6, R6, #4
+
+RTI
+
+A .FILL X4000
+.END

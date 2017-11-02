@@ -1,0 +1,9 @@
+.ORIG X1600
+
+LEA R2, A
+LDW R2, R2, #0
+
+RTI
+
+A .FILL X7000
+.END
